@@ -11,7 +11,7 @@ class Indexed(Recommender):
         self.catalog = catalog
 
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
-        recommendations = self.recommendations_redis.get(user)
+        recommendations = self.recommendations_redis.get(user)  # достаем из реддиса по ключу нужное нам значение
         if recommendations is not None:
             shuffled = list(self.catalog.from_bytes(recommendations))
             random.shuffle(shuffled)

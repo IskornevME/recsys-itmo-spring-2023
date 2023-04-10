@@ -16,6 +16,7 @@ from botify.recommenders.sticky_artist import StickyArtist
 from botify.recommenders.toppop import TopPop
 from botify.recommenders.indexed import Indexed
 from botify.recommenders.contextual import Contextual
+from botify.recommenders.my_recommender import MyRecomm
 from botify.track import Catalog
 
 import numpy as np
@@ -29,21 +30,24 @@ api = Api(app)
 
 # TODO Seminar 6 step 3: Create redis DB with tracks with diverse recommendations
 tracks_redis = Redis(app, config_prefix="REDIS_TRACKS")
-tracks_with_diverse_recs_redis = Redis(app, config_prefix="REDIS_TRACKS_WITH_DIVERSE_RECS")
-artists_redis = Redis(app, config_prefix="REDIS_ARTIST")
-recommendations_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS")
-recommendations_ub_redis = Redis(app, config_prefix="REDIS_RECOMMENDATIONS_UB")
+recom_for_tracks_redis = Redis(app, config_prefix="REDIS_RECOM_FOR_TRACKS")
+track_context_embeds_redis = Redis(app, config_prefix="REDIS_CONTEXT_TRACK_EMBEDS")  # контекстные эмбеддинги треков
+track_next_embeds_redis = Redis(app, config_prefix="REDIS_NEXT_TRACK_EMBEDS")  # обычные эмбеддинги треков
+user_context_embeds_redis = Redis(app, config_prefix="REDIS_CONTEXT_USER_EMBEDS")  # контекстные эмбеддинги пользователей
+recom_for_users_redis = Redis(app, config_prefix="REDIS_RECOM_FOR_USERS")
 
 data_logger = DataLogger(app)
 
 # TODO Seminar 6 step 4: Upload tracks with diverse recommendations to redis DB
 catalog = Catalog(app).load(
-    app.config["TRACKS_CATALOG"], app.config["TOP_TRACKS_CATALOG"], app.config["TRACKS_WITH_DIVERSE_RECS_CATALOG"]
+    "./data/tracks_with_recs.json", app.config["TOP_TRACKS_CATALOG"]  # для эксперимента c nn
 )
-catalog.upload_tracks(tracks_redis.connection, tracks_with_diverse_recs_redis.connection)
-catalog.upload_artists(artists_redis.connection)
-catalog.upload_recommendations(recommendations_redis.connection)
-catalog.upload_recommendations(recommendations_ub_redis.connection, "RECOMMENDATIONS_UB_FILE_PATH")
+catalog.upload_tracks(tracks_redis.connection)
+catalog.upload_recom_for_tracks(recom_for_tracks_redis.connection, app.config["RECOM_FOR_TRACKS_PATH"])
+catalog.upload_cont_track_embeds(track_context_embeds_redis.connection, app.config["CONTEXT_TRACK_EMBEDS_PATH"])
+catalog.upload_next_track_embeds(track_next_embeds_redis.connection, app.config["NEXT_TRACK_EMBEDS_PATH"])
+catalog.upload_cont_user_embeds(user_context_embeds_redis.connection, app.config["CONTEXT_USER_EMBEDS_PATH"])
+catalog.upload_recom_for_users(recom_for_users_redis.connection, app.config["RECOM_FOR_USERS_PATH"])
 
 parser = reqparse.RequestParser()
 parser.add_argument("track", type=int, location="json", required=True)
@@ -74,21 +78,20 @@ class NextTrack(Resource):
         args = parser.parse_args()
 
         # TODO Seminar 6 step 6: Wire RECOMMENDERS A/B experiment
-        treatment = Experiments.RECOMMENDERS.assign(user)
+        treatment = Experiments.MY_MODEL.assign(user)
         if treatment == Treatment.T1:
-            recommender = StickyArtist(tracks_redis.connection, artists_redis.connection, catalog)
-        elif treatment == Treatment.T2:
-            recommender = TopPop(tracks_redis.connection, catalog.top_tracks[:100])
-        elif treatment == Treatment.T3:
-            recommender = Indexed(tracks_redis.connection, recommendations_ub_redis.connection, catalog)
-        elif treatment == Treatment.T4:
-            recommender = Indexed(tracks_redis.connection, recommendations_redis.connection, catalog)
-        elif treatment == Treatment.T5:
-            recommender = Contextual(tracks_redis.connection, catalog)
-        elif treatment == Treatment.T6:
-            recommender = Contextual(tracks_with_diverse_recs_redis.connection, catalog)
+            recommender = MyRecomm(
+                app,
+                tracks_redis.connection,
+                recom_for_tracks_redis.connection,
+                catalog,
+                track_context_embeds_redis.connection,
+                track_next_embeds_redis.connection,
+                user_context_embeds_redis.connection,
+                recom_for_users_redis.connection
+            )
         else:
-            recommender = Random(tracks_redis.connection)
+            recommender = Contextual(tracks_redis.connection, catalog)
 
         recommendation = recommender.recommend_next(user, args.track, args.time)
 
@@ -130,5 +133,5 @@ api.add_resource(LastTrack, "/last/<int:user>")
 
 
 if __name__ == "__main__":
-    http_server = WSGIServer(("", 5000), app)
+    http_server = WSGIServer(("", 5050), app)
     http_server.serve_forever()

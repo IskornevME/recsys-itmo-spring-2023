@@ -16,12 +16,13 @@ class Contextual(Recommender):
         self.catalog = catalog
 
     def recommend_next(self, user: int, prev_track: int, prev_track_time: float) -> int:
-        previous_track = self.tracks_redis.get(prev_track)
+        #  достаем рекомендации для прослушанного трека
+        previous_track = self.tracks_redis.get(prev_track)  # получаем предыдущий прослушанный трек из базы данных
         if previous_track is None:
             return self.fallback.recommend_next(user, prev_track, prev_track_time)
 
-        previous_track = self.catalog.from_bytes(previous_track)
-        recommendations = previous_track.recommendations
+        previous_track = self.catalog.from_bytes(previous_track)  # раскодируем
+        recommendations = previous_track.recommendations  # получаем рекомендации для трека
         if not recommendations:
             return self.fallback.recommend_next(user, prev_track, prev_track_time)
 

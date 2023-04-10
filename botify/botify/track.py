@@ -23,10 +23,9 @@ class Catalog:
         self.app = app
         self.tracks = []
         self.top_tracks = []
-        self.tracks_with_diverse_recs = []
 
     # TODO Seminar 6 step 1: Configure reading tracks with diverse recommendations
-    def load(self, catalog_path, top_tracks_path, tracks_with_diverse_recs_path):
+    def load(self, catalog_path, top_tracks_path):
         self.app.logger.info(f"Loading tracks from {catalog_path}")
         with open(catalog_path) as catalog_file:
             for j, line in enumerate(catalog_file):
@@ -46,45 +45,22 @@ class Catalog:
             self.top_tracks = json.load(top_tracks_path_file)
         self.app.logger.info(f"Loaded top tracks {self.top_tracks[:3]} ...")
 
-        self.app.logger.info(f"Loading tracks with diverse recommendations from {tracks_with_diverse_recs_path}")
-
-        with open(tracks_with_diverse_recs_path) as tracks_with_diverse_recs_file:
-            for j, line in enumerate(tracks_with_diverse_recs_file):
-                data = json.loads(line)
-                self.tracks_with_diverse_recs.append(
-                    Track(
-                        data["track"],
-                        data["artist"],
-                        data["title"],
-                        data.get("recommendations", []),
-                    )
-                )
-
-        self.app.logger.info(f"Loaded {j + 1} tracks with diverse recs")
-
         return self
 
-    # TODO Seminar 6 step 2: Configure uploading tracks with diverse recommendations to redis DB
-    def upload_tracks(self, redis_tracks, redis_tracks_with_diverse_recs):
+    def upload_tracks(self, redis):
         self.app.logger.info(f"Uploading tracks to redis")
         for track in self.tracks:
-            redis_tracks.set(track.track, self.to_bytes(track))
-
-        for track in self.tracks_with_diverse_recs:
-            redis_tracks_with_diverse_recs.set(track.track, self.to_bytes(track))
-
-        self.app.logger.info(
-            f"Uploaded {len(self.tracks)} tracks, {len(self.tracks_with_diverse_recs)} tracks with diverse recs"
-        )
+            redis.set(track.track, self.to_bytes(track))
+        self.app.logger.info(f"Uploaded {len(self.tracks)} tracks")
 
     def upload_artists(self, redis):
         self.app.logger.info(f"Uploading artists to redis")
-        sorted_tracks = sorted(self.tracks, key=lambda track: track.artist)
+        sorted_tracks = sorted(self.tracks, key=lambda track: track.artist)  # сортируем по артисту
         for j, (artist, artist_catalog) in enumerate(
-            itertools.groupby(sorted_tracks, key=lambda track: track.artist)
+            itertools.groupby(sorted_tracks, key=lambda track: track.artist)  # группируем наши треки по исполнителю
         ):
-            artist_tracks = [t.track for t in artist_catalog]
-            redis.set(artist, self.to_bytes(artist_tracks))
+            artist_tracks = [t.track for t in artist_catalog]  # берем айди трека для каждого автора
+            redis.set(artist, self.to_bytes(artist_tracks))  # подгружаем все в реддис
         self.app.logger.info(f"Uploaded {j + 1} artists")
 
     def upload_recommendations(self, redis, recommendations_path="RECOMMENDATIONS_FILE_PATH"):
@@ -103,6 +79,80 @@ class Catalog:
                 )
                 j += 1
         self.app.logger.info(f"Uploaded recommendations for {j} users")
+
+    def upload_cont_track_embeds(self, redis, file_path):
+        self.app.logger.info(
+            f"Uploading context track embeddings to redis from {file_path}"
+        )
+
+        j = 0
+        with open(file_path) as rf:
+            for line in rf:
+                recommendations = json.loads(line)
+                redis.set(
+                    recommendations["track"], self.to_bytes(recommendations["conetxt_track_embed"])
+                )
+                j += 1
+        self.app.logger.info(f"Uploaded context track embeddings for {j}")
+
+    def upload_next_track_embeds(self, redis, file_path):
+        self.app.logger.info(
+            f"Uploading next track embeddings to redis from {file_path}"
+        )
+
+        j = 0
+        with open(file_path) as rf:
+            for line in rf:
+                recommendations = json.loads(line)
+                redis.set(
+                    recommendations["track"], self.to_bytes(recommendations["next_track_embed"])
+                )
+                j += 1
+        self.app.logger.info(f"Uploaded next track embeddings for {j}")
+    def upload_cont_user_embeds(self, redis, file_path):
+        self.app.logger.info(
+            f"Uploading context user embeddings to redis from {file_path}"
+        )
+
+        j = 0
+        with open(file_path) as rf:
+            for line in rf:
+                recommendations = json.loads(line)
+                redis.set(
+                    recommendations["user"], self.to_bytes(recommendations["context_user_embed"])
+                )
+                j += 1
+        self.app.logger.info(f"Uploaded context user embeddings for {j}")
+
+    def upload_recom_for_users(self, redis, file_path):
+        self.app.logger.info(
+            f"Uploading recommendations for users to redis from {file_path}"
+        )
+
+        j = 0
+        with open(file_path) as rf:
+            for line in rf:
+                recommendations = json.loads(line)
+                redis.set(
+                    recommendations["user"], self.to_bytes(recommendations["recommendations"])
+                )
+                j += 1
+        self.app.logger.info(f"Uploaded recommendations for {j} users")
+
+    def upload_recom_for_tracks(self, redis, file_path):
+        self.app.logger.info(
+            f"Uploading recommendations for track to redis from {file_path}"
+        )
+
+        j = 0
+        with open(file_path) as rf:
+            for line in rf:
+                recommendations = json.loads(line)
+                redis.set(
+                    recommendations["track"], self.to_bytes(recommendations["recommendations"])
+                )
+                j += 1
+        self.app.logger.info(f"Uploaded recommendations for {j} tracks")
 
     def to_bytes(self, instance):
         return pickle.dumps(instance)
